@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { ArrowRight, Target } from '@lucide/vue'
 import type { Prediction, StrategyOption } from '../types'
+import PanelStatus from './PanelStatus.vue'
 
 defineProps<{
   prediction: Prediction
   options: StrategyOption[]
+  loading?: boolean
+  error?: string
 }>()
+
+defineEmits<{ retry: [] }>()
 </script>
 
 <template>
@@ -48,5 +53,6 @@ defineProps<{
         </div>
       </article>
     </div>
+    <PanelStatus :loading="loading" :error="error" @retry="$emit('retry')" />
   </section>
 </template>

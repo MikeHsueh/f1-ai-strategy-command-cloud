@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { CircleDot, Thermometer, TrendingDown } from '@lucide/vue'
 import type { TireState } from '../types'
+import PanelStatus from './PanelStatus.vue'
 
-defineProps<{ tire: TireState }>()
+defineProps<{
+  tire: TireState
+  loading?: boolean
+  error?: string
+}>()
+
+defineEmits<{ retry: [] }>()
 </script>
 
 <template>
@@ -30,5 +37,6 @@ defineProps<{ tire: TireState }>()
     </div>
 
     <div class="health-bar"><i :style="{ width: `${tire.health}%` }"></i></div>
+    <PanelStatus :loading="loading" :error="error" @retry="$emit('retry')" />
   </section>
 </template>

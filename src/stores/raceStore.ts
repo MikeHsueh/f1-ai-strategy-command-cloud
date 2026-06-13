@@ -32,6 +32,22 @@ import type {
   TrendSeries,
 } from '../types'
 
+type PageName = 'dashboard' | 'replay' | 'simulator' | 'model-analysis'
+type PanelKey =
+  | 'health'
+  | 'raceState'
+  | 'prediction'
+  | 'timeline'
+  | 'pace'
+  | 'features'
+  | 'comparison'
+  | 'simulation'
+
+interface PanelLoadState {
+  loading: boolean
+  error: string
+}
+
 const emptyHealth: HealthResponse = {
   status: 'degraded',
   source: 'standby',
@@ -91,6 +107,10 @@ const emptyPrediction: Prediction = {
   attention: [],
 }
 
+function panelState(): PanelLoadState {
+  return { loading: false, error: '' }
+}
+
 export const useRaceStore = defineStore('race', () => {
   const selection = reactive<Selection>({
     year: 2024,
@@ -111,12 +131,38 @@ export const useRaceStore = defineStore('race', () => {
   const features = ref<FeatureItem[]>([])
   const comparison = ref<DriverComparisonRow[]>([])
   const simulationResult = ref<StrategySimulationResult | null>(null)
-  const loading = ref(false)
   const initializing = ref(false)
   const lastUpdated = ref<Date | null>(null)
   const dataSource = ref<DataSource>(forceMock ? 'mock' : 'api')
   const error = ref('')
-  let requestId = 0
+  const activePage = ref<PageName>('dashboard')
+  const panels = reactive<Record<PanelKey, PanelLoadState>>({
+    health: panelState(),
+    raceState: panelState(),
+    prediction: panelState(),
+    timeline: panelState(),
+    pace: panelState(),
+    features: panelState(),
+    comparison: panelState(),
+    simulation: panelState(),
+  })
+
+  const requestTokens: Record<PanelKey, number> = {
+    health: 0,
+    raceState: 0,
+    prediction: 0,
+    timeline: 0,
+    pace: 0,
+    features: 0,
+    comparison: 0,
+    simulation: 0,
+  }
+  let deferredTimers: number[] = []
+  let deferredContextKey = ''
+
+  const loading = computed(() =>
+    initializing.value || panels.raceState.loading || panels.prediction.loading,
+  )
 
   const selectedRace = computed(() =>
     races.value.find((race) => race.round === selection.roundNumber) ?? races.value[0],
@@ -163,53 +209,145 @@ export const useRaceStore = defineStore('race', () => {
     ]
   })
 
+  function selectionSnapshot(): Selection {
+    return { ...selection }
+  }
+
   function useSources(...sources: DataSource[]) {
     dataSource.value = forceMock || sources.includes('mock') ? 'mock' : 'api'
   }
 
-  async function refreshDashboard() {
-    const currentRequest = ++requestId
-    loading.value = true
-    error.value = ''
-    if (!forceMock) dataSource.value = 'api'
+  function friendlyPanelError(): string {
+    return 'Data unavailable. Please try again shortly.'
+  }
+
+  async function runPanelRequest<T>(
+    key: PanelKey,
+    request: () => Promise<{ data: T; source: DataSource }>,
+    apply: (value: T) => void,
+  ): Promise<void> {
+    const token = ++requestTokens[key]
+    panels[key].loading = true
+    panels[key].error = ''
 
     try {
-      const [stateResult, predictionResult, timelineResult, trendResult, featureResult, comparisonResult] =
-        await Promise.all([
-          getRaceState(selection),
-          predict(selection),
-          getPitProbabilityTimeline(selection),
-          getPaceTrend(selection),
-          getFeatures(selection),
-          getDriverComparison(selection),
-        ])
-
-      if (currentRequest !== requestId) return
-
-      raceState.value = stateResult.data
-      prediction.value = predictionResult.data
-      timeline.value = timelineResult.data
-      paceTrend.value = trendResult.data
-      features.value = featureResult.data
-      comparison.value = comparisonResult.data
-      useSources(
-        stateResult.source,
-        predictionResult.source,
-        timelineResult.source,
-        trendResult.source,
-        featureResult.source,
-        comparisonResult.source,
-      )
-      lastUpdated.value = new Date()
+      const result = await request()
+      if (token !== requestTokens[key]) return
+      apply(result.data)
+      useSources(result.source)
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : 'Dashboard refresh failed.'
+      if (token !== requestTokens[key]) return
+      console.error(`Failed to load ${key}.`, cause)
+      panels[key].error = friendlyPanelError()
     } finally {
-      if (currentRequest === requestId) loading.value = false
+      if (token === requestTokens[key]) panels[key].loading = false
     }
   }
 
+  function loadHealth(): Promise<void> {
+    return runPanelRequest('health', getHealth, (value) => {
+      health.value = value
+    })
+  }
+
+  function loadRaceState(): Promise<void> {
+    const current = selectionSnapshot()
+    return runPanelRequest('raceState', () => getRaceState(current), (value) => {
+      raceState.value = value
+    })
+  }
+
+  function loadPrediction(): Promise<void> {
+    const current = selectionSnapshot()
+    return runPanelRequest('prediction', () => predict(current), (value) => {
+      prediction.value = value
+    })
+  }
+
+  function loadTimeline(): Promise<void> {
+    const current = selectionSnapshot()
+    return runPanelRequest('timeline', () => getPitProbabilityTimeline(current), (value) => {
+      timeline.value = value
+    })
+  }
+
+  function loadPaceTrend(): Promise<void> {
+    const current = selectionSnapshot()
+    return runPanelRequest('pace', () => getPaceTrend(current), (value) => {
+      paceTrend.value = value
+    })
+  }
+
+  function loadFeatures(): Promise<void> {
+    const current = selectionSnapshot()
+    return runPanelRequest('features', () => getFeatures(current), (value) => {
+      features.value = value
+    })
+  }
+
+  function loadComparison(): Promise<void> {
+    const current = selectionSnapshot()
+    return runPanelRequest('comparison', () => getDriverComparison(current), (value) => {
+      comparison.value = value
+    })
+  }
+
+  async function refreshCore(): Promise<void> {
+    await Promise.allSettled([loadRaceState(), loadPrediction()])
+    lastUpdated.value = new Date()
+  }
+
+  function clearDeferredTimers() {
+    deferredTimers.forEach((timer) => window.clearTimeout(timer))
+    deferredTimers = []
+  }
+
+  function defer(callback: () => void, delay: number) {
+    deferredTimers.push(window.setTimeout(callback, delay))
+  }
+
+  function deferPanel(key: PanelKey, callback: () => void, delay: number) {
+    panels[key].loading = true
+    panels[key].error = ''
+    defer(callback, delay)
+  }
+
+  function loadDeferredForActivePage(force = false) {
+    clearDeferredTimers()
+    if (!seasons.value.length) return
+
+    const contextKey = [
+      activePage.value,
+      selection.year,
+      selection.roundNumber,
+      selection.driver,
+      selection.lap,
+    ].join(':')
+    if (!force && deferredContextKey === contextKey) return
+    deferredContextKey = contextKey
+
+    if (activePage.value === 'dashboard') {
+      deferPanel('features', () => void loadFeatures(), 80)
+      deferPanel('pace', () => void loadPaceTrend(), 180)
+      deferPanel('comparison', () => void loadComparison(), 280)
+      deferPanel('timeline', () => void loadTimeline(), 380)
+    } else if (activePage.value === 'replay') {
+      deferPanel('pace', () => void loadPaceTrend(), 80)
+      deferPanel('comparison', () => void loadComparison(), 180)
+      deferPanel('timeline', () => void loadTimeline(), 280)
+    } else if (activePage.value === 'model-analysis') {
+      deferPanel('features', () => void loadFeatures(), 80)
+    }
+  }
+
+  function activatePage(page: PageName) {
+    activePage.value = page
+    if (initializing.value) return
+    loadDeferredForActivePage()
+  }
+
   async function loadLaps() {
-    const result = await getLaps(selection)
+    const result = await getLaps(selectionSnapshot())
     laps.value = result.data
     useSources(result.source)
     if (!laps.value.includes(selection.lap)) selection.lap = laps.value[0] ?? 1
@@ -224,60 +362,81 @@ export const useRaceStore = defineStore('race', () => {
     }
   }
 
+  async function refreshCurrentPage() {
+    await refreshCore()
+    loadDeferredForActivePage(true)
+  }
+
   async function setYear(year: number) {
     selection.year = year
-    const result = await getRaces(year)
-    races.value = result.data
-    useSources(result.source)
-    selection.roundNumber = races.value[0]?.round ?? 1
-    await setRace(selection.roundNumber)
+    try {
+      const result = await getRaces(year)
+      races.value = result.data
+      useSources(result.source)
+      selection.roundNumber = races.value[0]?.round ?? 1
+      await setRace(selection.roundNumber)
+    } catch (cause) {
+      console.error('Failed to load races.', cause)
+      error.value = 'Race selector data is temporarily unavailable.'
+    }
   }
 
   async function setRace(roundNumber: number) {
     selection.roundNumber = roundNumber
     selection.lap = 1
-    await Promise.all([loadDrivers(), loadLaps()])
-    await refreshDashboard()
+    error.value = ''
+    try {
+      await Promise.all([loadDrivers(), loadLaps()])
+    } catch (cause) {
+      console.error('Failed to load race metadata.', cause)
+      error.value = 'Race selector data is temporarily unavailable.'
+    }
+    await refreshCurrentPage()
   }
 
   async function setDriver(driver: string) {
     selection.driver = driver
     simulationResult.value = null
-    await refreshDashboard()
+    await refreshCurrentPage()
   }
 
   async function setLap(lap: number) {
     selection.lap = lap
     simulationResult.value = null
-    await refreshDashboard()
+    await refreshCurrentPage()
   }
 
   async function runSimulation(input: StrategySimulationInput) {
-    const result = await simulateStrategy(selection, input)
-    simulationResult.value = result.data
-    useSources(result.source)
-    return result.data
+    let result: StrategySimulationResult | null = null
+    await runPanelRequest(
+      'simulation',
+      () => simulateStrategy(selectionSnapshot(), input),
+      (value) => {
+        simulationResult.value = value
+        result = value
+      },
+    )
+    return result
   }
 
   function resetSimulation() {
     simulationResult.value = null
+    panels.simulation.error = ''
   }
 
   async function initialize() {
     if (initializing.value || seasons.value.length) return
     initializing.value = true
     error.value = ''
+    panels.raceState.loading = true
+    panels.prediction.loading = true
+
     try {
-      // Wake cloud instances with the lightweight health request before
-      // loading datasets and running model-backed dashboard queries.
-      const healthResult = await getHealth()
-      health.value = healthResult.data
-      useSources(healthResult.source)
+      await loadHealth()
 
       const seasonResult = await getSeasons()
       seasons.value = seasonResult.data
-      useSources(healthResult.source, seasonResult.source)
-
+      useSources(seasonResult.source)
       if (!seasons.value.some((season) => season.year === selection.year)) {
         selection.year = seasons.value[0]?.year ?? 2024
       }
@@ -290,12 +449,14 @@ export const useRaceStore = defineStore('race', () => {
       }
 
       await Promise.all([loadDrivers(), loadLaps()])
-      await refreshDashboard()
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : 'Initialization failed.'
+      console.error('Failed to initialize race selectors.', cause)
+      error.value = 'Race selector data is temporarily unavailable.'
     } finally {
       initializing.value = false
     }
+
+    void refreshCore().then(() => loadDeferredForActivePage())
   }
 
   return {
@@ -313,6 +474,7 @@ export const useRaceStore = defineStore('race', () => {
     comparison,
     strategyOptions,
     simulationResult,
+    panels,
     selectedRace,
     selectedDriver,
     loading,
@@ -321,7 +483,15 @@ export const useRaceStore = defineStore('race', () => {
     dataSource,
     error,
     initialize,
-    refreshDashboard,
+    activatePage,
+    refreshDashboard: refreshCurrentPage,
+    loadTimeline,
+    loadPaceTrend,
+    loadFeatures,
+    loadComparison,
+    loadRaceState,
+    loadPrediction,
+    loadHealth,
     setYear,
     setRace,
     setDriver,

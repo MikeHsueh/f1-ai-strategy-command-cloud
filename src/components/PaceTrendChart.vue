@@ -3,8 +3,15 @@ import { computed } from 'vue'
 import type { EChartsOption } from 'echarts'
 import { useEChart } from '../composables/useEChart'
 import type { TrendSeries } from '../types'
+import PanelStatus from './PanelStatus.vue'
 
-const props = defineProps<{ series: TrendSeries[] }>()
+const props = defineProps<{
+  series: TrendSeries[]
+  loading?: boolean
+  error?: string
+}>()
+
+defineEmits<{ retry: [] }>()
 
 const options = computed<EChartsOption>(() => {
   const labels = [...new Set(props.series.flatMap((series) => series.data.map((point) => point.label)))]
@@ -64,5 +71,6 @@ const { chartElement } = useEChart(options)
       </div>
     </header>
     <div ref="chartElement" class="chart pace-chart"></div>
+    <PanelStatus :loading="loading" :error="error" @retry="$emit('retry')" />
   </section>
 </template>

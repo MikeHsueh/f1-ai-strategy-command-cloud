@@ -5,6 +5,7 @@ import type { EChartsOption } from 'echarts'
 
 import FeatureImportancePanel from '../components/FeatureImportancePanel.vue'
 import ModelHealthPanel from '../components/ModelHealthPanel.vue'
+import PanelStatus from '../components/PanelStatus.vue'
 import RaceSelectorBar from '../components/RaceSelectorBar.vue'
 import { useEChart } from '../composables/useEChart'
 import { useRaceStore } from '../stores/raceStore'
@@ -12,7 +13,7 @@ import { useRaceStore } from '../stores/raceStore'
 const store = useRaceStore()
 const {
   selection, seasons, races, drivers, laps, health, features,
-  prediction, loading, lastUpdated, dataSource,
+  prediction, loading, lastUpdated, dataSource, panels,
 } = storeToRefs(store)
 
 const attentionOptions = computed<EChartsOption>(() => ({
@@ -30,7 +31,7 @@ const attentionOptions = computed<EChartsOption>(() => ({
 }))
 const { chartElement } = useEChart(attentionOptions)
 
-onMounted(store.initialize)
+onMounted(() => store.activatePage('model-analysis'))
 </script>
 
 <template>
@@ -44,9 +45,21 @@ onMounted(store.initialize)
     />
 
     <div class="model-analysis-grid">
-      <FeatureImportancePanel class="analysis-features" :features="features" :limit="14" />
+      <FeatureImportancePanel
+        class="analysis-features"
+        :features="features"
+        :limit="14"
+        :loading="panels.features.loading"
+        :error="panels.features.error"
+        @retry="store.loadFeatures"
+      />
       <ModelHealthPanel
-        :health="health" :source="dataSource" :last-updated="lastUpdated" :loading="loading"
+        :health="health"
+        :source="dataSource"
+        :last-updated="lastUpdated"
+        :loading="panels.health.loading"
+        :error="panels.health.error"
+        @retry="store.loadHealth"
       />
       <section class="command-card attention-panel" data-tour="attention-distribution">
         <header class="card-heading">
@@ -54,6 +67,11 @@ onMounted(store.initialize)
           <span class="panel-note">Sequence length {{ prediction.attention.length }}</span>
         </header>
         <div ref="chartElement" class="chart attention-chart"></div>
+        <PanelStatus
+          :loading="panels.prediction.loading"
+          :error="panels.prediction.error"
+          @retry="store.loadPrediction"
+        />
       </section>
       <section class="command-card feature-ledger" data-tour="feature-ledger">
         <header class="card-heading">
@@ -67,6 +85,11 @@ onMounted(store.initialize)
             <b>{{ feature.value.toFixed(3) }}</b>
           </article>
         </div>
+        <PanelStatus
+          :loading="panels.features.loading"
+          :error="panels.features.error"
+          @retry="store.loadFeatures"
+        />
       </section>
     </div>
   </div>

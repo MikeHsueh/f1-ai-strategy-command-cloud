@@ -3,11 +3,16 @@ import { computed } from 'vue'
 import type { EChartsOption } from 'echarts'
 import { useEChart } from '../composables/useEChart'
 import type { FeatureItem } from '../types'
+import PanelStatus from './PanelStatus.vue'
 
 const props = defineProps<{
   features: FeatureItem[]
   limit?: number
+  loading?: boolean
+  error?: string
 }>()
+
+defineEmits<{ retry: [] }>()
 
 const shown = computed(() => [...props.features]
   .sort((a, b) => b.importance - a.importance)
@@ -60,5 +65,6 @@ const { chartElement } = useEChart(options)
       <span class="panel-note">{{ features.length }} active features</span>
     </header>
     <div ref="chartElement" class="chart feature-chart"></div>
+    <PanelStatus :loading="loading" :error="error" @retry="$emit('retry')" />
   </section>
 </template>

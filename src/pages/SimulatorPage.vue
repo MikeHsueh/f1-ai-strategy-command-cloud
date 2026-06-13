@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, defineAsyncComponent, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 
-import PitProbabilityGauge from '../components/PitProbabilityGauge.vue'
+import AsyncPanelPlaceholder from '../components/AsyncPanelPlaceholder.vue'
 import RaceSelectorBar from '../components/RaceSelectorBar.vue'
 import StrategyRecommendation from '../components/StrategyRecommendation.vue'
 import TireHealthPanel from '../components/TireHealthPanel.vue'
@@ -11,13 +11,19 @@ import WhatIfSimulator from '../components/WhatIfSimulator.vue'
 import { useRaceStore } from '../stores/raceStore'
 import { classifyRisk } from '../types'
 
+const PitProbabilityGauge = defineAsyncComponent({
+  loader: () => import('../components/PitProbabilityGauge.vue'),
+  loadingComponent: AsyncPanelPlaceholder,
+  delay: 0,
+})
+
 const store = useRaceStore()
 const {
   selection, seasons, races, drivers, laps, raceState, prediction,
-  strategyOptions, simulationResult, loading,
+  strategyOptions, simulationResult, loading, panels,
 } = storeToRefs(store)
 
-onMounted(store.initialize)
+onMounted(() => store.activatePage('simulator'))
 
 const simulatedDecision = computed(() =>
   classifyRisk(simulationResult.value?.pit_probability ?? prediction.value.pit_probability),
@@ -39,6 +45,7 @@ const simulatedDecision = computed(() =>
         class="simulator-workbench"
         :race-state="raceState"
         :result="simulationResult"
+        :request-error="panels.simulation.error"
         allow-initial-override
         @simulate="store.runSimulation"
         @reset="store.resetSimulation"
@@ -48,10 +55,32 @@ const simulatedDecision = computed(() =>
         :probability="simulationResult?.pit_probability ?? prediction.pit_probability"
         :risk="simulatedDecision.risk"
         :action="simulatedDecision.action"
+        :loading="panels.prediction.loading"
+        :error="panels.prediction.error"
+        @retry="store.loadPrediction"
       />
-      <StrategyRecommendation class="simulator-strategy" :prediction="prediction" :options="strategyOptions" />
-      <TireHealthPanel class="simulator-tire" :tire="raceState.tire" />
-      <WeatherPanel class="simulator-weather" :weather="raceState.weather" />
+      <StrategyRecommendation
+        class="simulator-strategy"
+        :prediction="prediction"
+        :options="strategyOptions"
+        :loading="panels.prediction.loading"
+        :error="panels.prediction.error"
+        @retry="store.loadPrediction"
+      />
+      <TireHealthPanel
+        class="simulator-tire"
+        :tire="raceState.tire"
+        :loading="panels.raceState.loading"
+        :error="panels.raceState.error"
+        @retry="store.loadRaceState"
+      />
+      <WeatherPanel
+        class="simulator-weather"
+        :weather="raceState.weather"
+        :loading="panels.raceState.loading"
+        :error="panels.raceState.error"
+        @retry="store.loadRaceState"
+      />
     </div>
   </div>
 </template>

@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { CloudRain, Droplets, ThermometerSun, Wind } from '@lucide/vue'
 import type { WeatherState } from '../types'
+import PanelStatus from './PanelStatus.vue'
 
-defineProps<{ weather: WeatherState }>()
+defineProps<{
+  weather: WeatherState
+  loading?: boolean
+  error?: string
+}>()
+
+defineEmits<{ retry: [] }>()
 </script>
 
 <template>
@@ -30,5 +37,6 @@ defineProps<{ weather: WeatherState }>()
       <article><Droplets :size="15" /><span>Humidity</span><strong>{{ Math.round(weather.humidity) }}%</strong></article>
       <article><Wind :size="15" /><span>Wind</span><strong>{{ weather.wind_speed.toFixed(1) }}</strong><small>km/h</small></article>
     </div>
+    <PanelStatus :loading="loading" :error="error" @retry="$emit('retry')" />
   </section>
 </template>

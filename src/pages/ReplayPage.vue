@@ -1,17 +1,30 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, defineAsyncComponent, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Play, SkipBack, SkipForward } from '@lucide/vue'
 
+import AsyncPanelPlaceholder from '../components/AsyncPanelPlaceholder.vue'
 import DriverComparisonTable from '../components/DriverComparisonTable.vue'
-import PaceTrendChart from '../components/PaceTrendChart.vue'
-import PitProbabilityTimeline from '../components/PitProbabilityTimeline.vue'
 import RaceSelectorBar from '../components/RaceSelectorBar.vue'
 import RaceStatePanel from '../components/RaceStatePanel.vue'
 import { useRaceStore } from '../stores/raceStore'
 
+const PaceTrendChart = defineAsyncComponent({
+  loader: () => import('../components/PaceTrendChart.vue'),
+  loadingComponent: AsyncPanelPlaceholder,
+  delay: 0,
+})
+const PitProbabilityTimeline = defineAsyncComponent({
+  loader: () => import('../components/PitProbabilityTimeline.vue'),
+  loadingComponent: AsyncPanelPlaceholder,
+  delay: 0,
+})
+
 const store = useRaceStore()
-const { selection, seasons, races, drivers, laps, raceState, timeline, paceTrend, comparison, loading } = storeToRefs(store)
+const {
+  selection, seasons, races, drivers, laps, raceState, timeline,
+  paceTrend, comparison, loading, panels,
+} = storeToRefs(store)
 const lapIndex = computed(() => Math.max(0, laps.value.indexOf(selection.value.lap)))
 
 function step(direction: number) {
@@ -19,7 +32,7 @@ function step(direction: number) {
   if (next) store.setLap(next)
 }
 
-onMounted(store.initialize)
+onMounted(() => store.activatePage('replay'))
 </script>
 
 <template>
@@ -52,14 +65,35 @@ onMounted(store.initialize)
     </section>
 
     <div class="replay-grid">
-      <RaceStatePanel :state="raceState" />
-      <PitProbabilityTimeline class="replay-timeline" :points="timeline" :current-lap="selection.lap" />
-      <PaceTrendChart class="replay-pace" :series="paceTrend" />
+      <RaceStatePanel
+        :state="raceState"
+        :loading="panels.raceState.loading"
+        :error="panels.raceState.error"
+        @retry="store.loadRaceState"
+      />
+      <PitProbabilityTimeline
+        class="replay-timeline"
+        :points="timeline"
+        :current-lap="selection.lap"
+        :loading="panels.timeline.loading"
+        :error="panels.timeline.error"
+        @retry="store.loadTimeline"
+      />
+      <PaceTrendChart
+        class="replay-pace"
+        :series="paceTrend"
+        :loading="panels.pace.loading"
+        :error="panels.pace.error"
+        @retry="store.loadPaceTrend"
+      />
       <DriverComparisonTable
         class="replay-table"
         :rows="comparison"
         :selected-driver="selection.driver"
+        :loading="panels.comparison.loading"
+        :error="panels.comparison.error"
         @select="store.setDriver"
+        @retry="store.loadComparison"
       />
     </div>
   </div>

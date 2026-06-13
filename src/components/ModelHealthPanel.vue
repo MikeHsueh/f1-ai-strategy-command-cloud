@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { Activity, Database, Server, ShieldCheck } from '@lucide/vue'
 import type { DataSource, HealthResponse } from '../types'
+import PanelStatus from './PanelStatus.vue'
 
 defineProps<{
   health: HealthResponse
   source: DataSource
   lastUpdated: Date | null
   loading: boolean
+  error?: string
 }>()
+
+defineEmits<{ retry: [] }>()
 </script>
 
 <template>
@@ -48,5 +52,6 @@ defineProps<{
       <span>{{ health.model.sequence_length }}x{{ health.model.input_dim }}</span>
       <span>{{ lastUpdated ? lastUpdated.toLocaleTimeString() : 'standby' }}</span>
     </footer>
+    <PanelStatus :loading="loading" :error="error" @retry="$emit('retry')" />
   </section>
 </template>

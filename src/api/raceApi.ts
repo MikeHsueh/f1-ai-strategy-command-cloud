@@ -20,6 +20,26 @@ import type {
   Selection,
 } from '../types'
 
+let seasonsRequest: Promise<ApiResult<Season[]>> | null = null
+const raceRequests = new Map<number, Promise<ApiResult<Race[]>>>()
+const driverRequests = new Map<string, Promise<ApiResult<Driver[]>>>()
+
+function cacheRequest<K, T>(
+  cache: Map<K, Promise<T>>,
+  key: K,
+  loader: () => Promise<T>,
+): Promise<T> {
+  const existing = cache.get(key)
+  if (existing) return existing
+
+  const request = loader().catch((error) => {
+    cache.delete(key)
+    throw error
+  })
+  cache.set(key, request)
+  return request
+}
+
 function query(selection: Selection) {
   return {
     year: selection.year,
@@ -37,23 +57,34 @@ export function getHealth(): Promise<ApiResult<HealthResponse>> {
 }
 
 export function getSeasons(): Promise<ApiResult<Season[]>> {
-  return withMock(
-    async () => (await apiClient.get<{ seasons: Season[] }>('/api/seasons')).data.seasons,
-    () => mockSeasons,
-  )
+  if (!seasonsRequest) {
+    seasonsRequest = withMock(
+      async () => (await apiClient.get<{ seasons: Season[] }>('/api/seasons')).data.seasons,
+      () => mockSeasons,
+    ).catch((error) => {
+      seasonsRequest = null
+      throw error
+    })
+  }
+  return seasonsRequest
 }
 
 export function getRaces(year: number): Promise<ApiResult<Race[]>> {
-  return withMock(
-    async () => (await apiClient.get<{ races: Race[] }>('/api/races', { params: { year } })).data.races,
-    () => mockRaces.map((race) => ({ ...race, year })),
+  return cacheRequest(raceRequests, year, () =>
+    withMock(
+      async () => (await apiClient.get<{ races: Race[] }>('/api/races', { params: { year } })).data.races,
+      () => mockRaces.map((race) => ({ ...race, year })),
+    ),
   )
 }
 
 export function getDrivers(year: number, roundNumber: number): Promise<ApiResult<Driver[]>> {
-  return withMock(
-    async () => (await apiClient.get<{ drivers: Driver[] }>('/api/drivers', { params: { year, round_number: roundNumber } })).data.drivers,
-    () => mockDrivers,
+  const key = `${year}:${roundNumber}`
+  return cacheRequest(driverRequests, key, () =>
+    withMock(
+      async () => (await apiClient.get<{ drivers: Driver[] }>('/api/drivers', { params: { year, round_number: roundNumber } })).data.drivers,
+      () => mockDrivers,
+    ),
   )
 }
 

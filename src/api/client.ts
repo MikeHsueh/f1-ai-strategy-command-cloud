@@ -3,7 +3,7 @@ import type { ApiResult } from '../types'
 
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/',
-  timeout: 75000,
+  timeout: 8000,
 })
 
 export const forceMock = String(import.meta.env.VITE_USE_MOCK || '').toLowerCase() === 'true'

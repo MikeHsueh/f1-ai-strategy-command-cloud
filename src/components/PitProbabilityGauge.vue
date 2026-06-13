@@ -3,12 +3,17 @@ import { computed } from 'vue'
 import type { EChartsOption } from 'echarts'
 import { useEChart } from '../composables/useEChart'
 import type { RiskLevel, StrategyAction } from '../types'
+import PanelStatus from './PanelStatus.vue'
 
 const props = defineProps<{
   probability: number
   risk: RiskLevel
   action: StrategyAction
+  loading?: boolean
+  error?: string
 }>()
+
+defineEmits<{ retry: [] }>()
 
 const color = computed(() => {
   if (props.probability >= 0.85) return '#ff2438'
@@ -71,5 +76,6 @@ const { chartElement } = useEChart(options)
       <span>65–85 Prepare</span>
       <span>85+ Pit now</span>
     </div>
+    <PanelStatus :loading="loading" :error="error" @retry="$emit('retry')" />
   </section>
 </template>

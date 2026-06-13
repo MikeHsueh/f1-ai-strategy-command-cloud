@@ -13,6 +13,7 @@ const props = withDefaults(defineProps<{
   raceState: RaceState
   result: StrategySimulationResult | null
   allowInitialOverride?: boolean
+  requestError?: string
 }>(), {
   allowInitialOverride: false,
 })
@@ -216,6 +217,9 @@ async function run() {
       <article><span>Projected finish</span><strong>P{{ result.projected_position }}</strong></article>
       <article><span>Expected gain</span><strong>{{ result.expected_gain.toFixed(2) }}s</strong></article>
       <p>{{ result.summary }}</p>
+    </div>
+    <div v-else-if="requestError" class="inline-panel-error">
+      Data loading failed. Please try again shortly.
     </div>
   </section>
 </template>

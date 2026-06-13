@@ -3,11 +3,16 @@ import { computed } from 'vue'
 import type { EChartsOption } from 'echarts'
 import { useEChart } from '../composables/useEChart'
 import type { TimelinePoint } from '../types'
+import PanelStatus from './PanelStatus.vue'
 
 const props = defineProps<{
   points: TimelinePoint[]
   currentLap: number
+  loading?: boolean
+  error?: string
 }>()
+
+defineEmits<{ retry: [] }>()
 
 const options = computed<EChartsOption>(() => ({
   animationDuration: 350,
@@ -82,5 +87,6 @@ const { chartElement } = useEChart(options)
       <span class="panel-note">Yellow dot = recorded stop</span>
     </header>
     <div ref="chartElement" class="chart timeline-chart"></div>
+    <PanelStatus :loading="loading" :error="error" @retry="$emit('retry')" />
   </section>
 </template>

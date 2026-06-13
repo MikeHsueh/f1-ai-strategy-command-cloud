@@ -1,13 +1,19 @@
 <script setup lang="ts">
 import type { DriverComparisonRow } from '../types'
+import PanelStatus from './PanelStatus.vue'
 
 defineProps<{
   rows: DriverComparisonRow[]
   selectedDriver: string
   compact?: boolean
+  loading?: boolean
+  error?: string
 }>()
 
-const emit = defineEmits<{ select: [driver: string] }>()
+const emit = defineEmits<{
+  select: [driver: string]
+  retry: []
+}>()
 
 function probabilityClass(value: number) {
   if (value >= 0.85) return 'critical'
@@ -49,5 +55,6 @@ function probabilityClass(value: number) {
         <span>{{ row.predicted_pit_lap ? `L${row.predicted_pit_lap}` : '--' }}</span>
       </button>
     </div>
+    <PanelStatus :loading="loading" :error="error" @retry="emit('retry')" />
   </section>
 </template>

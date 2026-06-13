@@ -1,4 +1,7 @@
+import copy
+import math
 import os
+import threading
 import time
 
 from pathlib import Path
@@ -16,6 +19,72 @@ FRONTEND_DIST = Path(__file__).resolve().parent.parent / "dist"
 
 app = Flask(__name__, static_folder=None)
 CORS(app, supports_credentials=True)
+
+_CACHE_TTL_SECONDS = 60
+_MEMORY_CACHE = {}
+_CACHE_LOCK = threading.Lock()
+_KEY_LOCKS = {}
+
+
+def _cache_key(payload):
+    return tuple(sorted(
+        (str(key), str(value))
+        for key, value in payload.items()
+        if value is None or isinstance(value, (str, int, float, bool))
+    ))
+
+
+def _cached_value(namespace, key, builder, ttl=_CACHE_TTL_SECONDS):
+    full_key = (namespace, key)
+    now = time.monotonic()
+
+    with _CACHE_LOCK:
+        cached = _MEMORY_CACHE.get(full_key)
+        if cached and now - cached["created_at"] < ttl:
+            return copy.deepcopy(cached["value"])
+        key_lock = _KEY_LOCKS.setdefault(full_key, threading.Lock())
+
+    with key_lock:
+        now = time.monotonic()
+        with _CACHE_LOCK:
+            cached = _MEMORY_CACHE.get(full_key)
+            if cached and now - cached["created_at"] < ttl:
+                return copy.deepcopy(cached["value"])
+
+        value = builder()
+        with _CACHE_LOCK:
+            _MEMORY_CACHE[full_key] = {
+                "created_at": time.monotonic(),
+                "value": copy.deepcopy(value),
+            }
+            if len(_MEMORY_CACHE) > 512:
+                expired = [
+                    cache_key
+                    for cache_key, entry in _MEMORY_CACHE.items()
+                    if time.monotonic() - entry["created_at"] >= ttl
+                ]
+                for cache_key in expired:
+                    _MEMORY_CACHE.pop(cache_key, None)
+                    _KEY_LOCKS.pop(cache_key, None)
+        return value
+
+
+def _cached_context(year=None, round_number=None):
+    key = (str(year or ""), str(round_number or ""))
+    return _cached_value(
+        "context",
+        key,
+        lambda: context_payload(year=year, round_number=round_number),
+    )
+
+
+def _cached_strategy(payload):
+    normalized = clean_payload(payload)
+    return _cached_value(
+        "strategy",
+        _cache_key(normalized),
+        lambda: simulate_strategy(normalized),
+    )
 
 
 DRIVER_NAMES = {
@@ -154,7 +223,7 @@ def prediction_payload(result):
 
 
 def context_for_payload(payload):
-    return context_payload(
+    return _cached_context(
         year=payload.get("year"),
         round_number=payload.get("round_number"),
     )
@@ -186,6 +255,13 @@ def model_info():
     })
 
 
+@app.after_request
+def add_cache_headers(response):
+    if request.path in {"/api/seasons", "/api/races", "/api/drivers"}:
+        response.headers["Cache-Control"] = "public, max-age=60"
+    return response
+
+
 @app.route("/api/health", methods=["GET"])
 def health():
     started = time.perf_counter()
@@ -203,7 +279,7 @@ def health():
 
 @app.route("/api/seasons", methods=["GET"])
 def seasons():
-    context = context_payload()
+    context = _cached_context()
     return jsonify({
         "source": context.get("source", "backend"),
         "seasons": context.get("seasons", []),
@@ -212,7 +288,7 @@ def seasons():
 
 @app.route("/api/races", methods=["GET"])
 def races():
-    context = context_payload(year=request.args.get("year"))
+    context = _cached_context(year=request.args.get("year"))
     return jsonify({
         "source": context.get("source", "backend"),
         "races": context.get("races", []),
@@ -221,7 +297,7 @@ def races():
 
 @app.route("/api/drivers", methods=["GET"])
 def drivers():
-    context = context_payload(
+    context = _cached_context(
         year=request.args.get("year"),
         round_number=request.args.get("round_number"),
     )
@@ -248,7 +324,8 @@ def laps():
 
 @app.route("/api/race-state", methods=["GET"])
 def race_state():
-    result = simulate_strategy(request_payload())
+    payload = request_payload()
+    result = _cached_strategy(payload)
     state = result.get("race_state", {})
     weather = result.get("weather", {})
     tire = result.get("tire", {})
@@ -287,7 +364,7 @@ def race_state():
 
 @app.route("/api/weather", methods=["GET"])
 def weather():
-    result = simulate_strategy(request_payload())
+    result = _cached_strategy(request_payload())
     return jsonify({
         **result.get("weather", {}),
         "condition": result.get("weather_radar", {}).get("condition", "dry"),
@@ -296,54 +373,106 @@ def weather():
 
 @app.route("/api/features", methods=["GET"])
 def features():
-    return jsonify({"features": feature_importance(request_payload())})
+    payload = request_payload()
+    items = _cached_value(
+        "features",
+        _cache_key(payload),
+        lambda: feature_importance(payload),
+    )
+    return jsonify({"features": items})
 
 
 @app.route("/api/predict", methods=["POST"])
 def predict():
-    result = simulate_strategy(clean_payload(request.json))
+    result = _cached_strategy(clean_payload(request.json))
     return jsonify(prediction_payload(result))
 
 
 @app.route("/api/pit-probability-timeline", methods=["GET"])
 def pit_probability_timeline():
     payload = request_payload()
-    context = context_for_payload(payload)
-    selected_race = next(
+
+    def build_timeline():
+        context = context_for_payload(payload)
+        selected_race = next(
+            (
+                race for race in context.get("races", [])
+                if int(race.get("round", 0)) == int(payload.get("round_number", 0))
+            ),
+            context.get("races", [{}])[0] if context.get("races") else {},
+        )
+        total_laps = int(selected_race.get("total_laps", 52))
+
+        df = raw_data()
+        driver_rows = df[
+            (df["Year"] == int(payload["year"]))
+            & (df["RoundNumber"] == int(payload["round_number"]))
+            & (df["Driver"].astype(str).str.upper() == str(payload["driver"]).upper())
+        ]
+        actual_pits = {
+            int(row["LapNumber"]): str(row.get("Compound") or "UNKNOWN").upper()
+            for _, row in driver_rows[driver_rows["PitInTime"].notna()].iterrows()
+        }
+
+        important_laps = {
+            1,
+            total_laps,
+            *actual_pits.keys(),
+        }
+        max_points = 20
+        remaining = max(0, max_points - len(important_laps))
+        sampled_laps = set(important_laps)
+        if remaining:
+            step = max(1, math.ceil(total_laps / remaining))
+            sampled_laps.update(range(1, total_laps + 1, step))
+
+        if len(sampled_laps) > max_points:
+            optional = sorted(sampled_laps - important_laps)
+            keep_count = max(0, max_points - len(important_laps))
+            if keep_count and optional:
+                indexes = {
+                    round(index * (len(optional) - 1) / max(1, keep_count - 1))
+                    for index in range(keep_count)
+                }
+                optional = [optional[index] for index in sorted(indexes)]
+            else:
+                optional = []
+            sampled_laps = important_laps | set(optional)
+
+        timeline = []
+        for lap in sorted(sampled_laps):
+            probability, enriched = predict_probability({**payload, "lap": lap})
+            timeline.append({
+                "lap": lap,
+                "probability": round(probability, 5),
+                "actual_pit": lap in actual_pits,
+                "compound": actual_pits.get(
+                    lap,
+                    str(enriched.get("compound", "UNKNOWN")).upper(),
+                ),
+            })
+        return {
+            "timeline": timeline,
+            "source": "trained_model_sampled",
+            "sample_count": len(timeline),
+            "total_laps": total_laps,
+        }
+
+    result = _cached_value(
+        "timeline",
         (
-            race for race in context.get("races", [])
-            if int(race.get("round", 0)) == int(payload.get("round_number", 0))
+            str(payload.get("year")),
+            str(payload.get("round_number")),
+            str(payload.get("driver")).upper(),
         ),
-        context.get("races", [{}])[0] if context.get("races") else {},
+        build_timeline,
     )
-    total_laps = int(selected_race.get("total_laps", 52))
-
-    df = raw_data()
-    driver_rows = df[
-        (df["Year"] == int(payload["year"]))
-        & (df["RoundNumber"] == int(payload["round_number"]))
-        & (df["Driver"].astype(str).str.upper() == str(payload["driver"]).upper())
-    ]
-    actual_pits = {
-        int(row["LapNumber"]): str(row.get("Compound") or "UNKNOWN").upper()
-        for _, row in driver_rows[driver_rows["PitInTime"].notna()].iterrows()
-    }
-
-    timeline = []
-    for lap in range(1, total_laps + 1):
-        probability, enriched = predict_probability({**payload, "lap": lap})
-        timeline.append({
-            "lap": lap,
-            "probability": round(probability, 5),
-            "actual_pit": lap in actual_pits,
-            "compound": actual_pits.get(lap, str(enriched.get("compound", "UNKNOWN")).upper()),
-        })
-    return jsonify({"timeline": timeline, "source": "trained_model_per_lap"})
+    return jsonify(result)
 
 
 @app.route("/api/pace-trend", methods=["GET"])
 def pace_trend():
-    result = simulate_strategy(request_payload())
+    result = _cached_strategy(request_payload())
     trend = result.get("delta_trend", {})
     return jsonify({
         "series": trend.get("series", []),
@@ -430,7 +559,7 @@ def simulate_strategy_endpoint():
 
 @app.route("/api/driver-comparison", methods=["GET"])
 def driver_comparison():
-    result = simulate_strategy(request_payload())
+    result = _cached_strategy(request_payload())
     rows = []
     for entry in result.get("classification", []):
         pit_probability = probability_value(entry.get("pit_risk", 0.0))

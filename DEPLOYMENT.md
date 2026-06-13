@@ -59,6 +59,9 @@ gunicorn --chdir backend --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 
 - Do not set `VITE_USE_MOCK=true` in production.
 - Keep `VITE_ALLOW_MOCK_FALLBACK=false` so backend failures are shown
   instead of silently replacing trained-model output with browser mock data.
+- API requests use an 8-second timeout and retry transient failures once.
+- Heavy inference responses are cached in memory for 60 seconds per instance.
+- Timeline inference is sampled to no more than 20 points and loads lazily.
 - The default API base URL is `/`, so frontend and backend share one origin.
 - `best_f1_strategy_model_attention.pth` is the active trained model.
 - `raw_f1_data.parquet` and `engineered_f1_data.parquet` are required.

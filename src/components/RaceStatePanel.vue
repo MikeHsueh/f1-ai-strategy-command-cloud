@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { Flag, Gauge, Timer, Zap } from '@lucide/vue'
 import type { RaceState } from '../types'
+import PanelStatus from './PanelStatus.vue'
 
-defineProps<{ state: RaceState }>()
+defineProps<{
+  state: RaceState
+  loading?: boolean
+  error?: string
+}>()
+
+defineEmits<{ retry: [] }>()
 </script>
 
 <template>
@@ -59,5 +66,6 @@ defineProps<{ state: RaceState }>()
       <span><b>{{ Math.round(state.brake) }}%</b> BRK</span>
       <span><Zap :size="12" /><b>{{ Math.round(state.safety_car_incident_risk * 100) }}%</b> SC RISK</span>
     </div>
+    <PanelStatus :loading="loading" :error="error" @retry="$emit('retry')" />
   </section>
 </template>
