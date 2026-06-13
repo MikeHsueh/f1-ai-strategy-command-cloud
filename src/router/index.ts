@@ -9,6 +9,7 @@ const router = createRouter({
     { path: '/replay', name: 'replay', component: () => import('../pages/ReplayPage.vue') },
     { path: '/simulator', name: 'simulator', component: SimulatorPage },
     { path: '/model-analysis', name: 'model-analysis', component: () => import('../pages/ModelAnalysisPage.vue') },
+    { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })
 

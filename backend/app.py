@@ -10,7 +10,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
 from data_service import context_payload, raw_data
-from simulator import feature_importance, predict_probability, simulate_strategy
+from simulator import feature_importance, predict_probabilities, simulate_strategy
 from strategy_model import MODEL_INFO
 from telemetry_engine import FEATURE_COLUMNS, calculate_tire_health
 
@@ -75,6 +75,7 @@ def _cached_context(year=None, round_number=None):
         "context",
         key,
         lambda: context_payload(year=year, round_number=round_number),
+        ttl=600,
     )
 
 
@@ -439,9 +440,16 @@ def pit_probability_timeline():
                 optional = []
             sampled_laps = important_laps | set(optional)
 
+        timeline_payloads = [
+            {**payload, "lap": lap}
+            for lap in sorted(sampled_laps)
+        ]
         timeline = []
-        for lap in sorted(sampled_laps):
-            probability, enriched = predict_probability({**payload, "lap": lap})
+        for lap_payload, (probability, enriched) in zip(
+            timeline_payloads,
+            predict_probabilities(timeline_payloads),
+        ):
+            lap = int(lap_payload["lap"])
             timeline.append({
                 "lap": lap,
                 "probability": round(probability, 5),
@@ -466,6 +474,7 @@ def pit_probability_timeline():
             str(payload.get("driver")).upper(),
         ),
         build_timeline,
+        ttl=600,
     )
     return jsonify(result)
 

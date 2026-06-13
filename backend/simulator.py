@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 
 from data_service import dataset_context, enrich_payload_from_dataset
@@ -151,6 +152,27 @@ def predict_probability(payload):
     with torch.no_grad():
         logits = model(tensor)
     return float(torch.sigmoid(logits).item()), enriched
+
+
+def predict_probabilities(payloads):
+    """Run one batched model inference for a sequence of timeline payloads."""
+    enriched_payloads = []
+    feature_vectors = []
+
+    for payload in payloads:
+        enriched = enrich_payload_from_dataset(payload)
+        feature_vector, _, _, _ = build_feature_vector(enriched)
+        enriched_payloads.append(enriched)
+        feature_vectors.append(feature_vector)
+
+    if not feature_vectors:
+        return []
+
+    tensor = torch.from_numpy(np.stack(feature_vectors).astype(np.float32)).to(device)
+    with torch.inference_mode():
+        probabilities = torch.sigmoid(model(tensor)).detach().cpu().tolist()
+
+    return list(zip((float(value) for value in probabilities), enriched_payloads))
 
 
 def feature_importance(payload):

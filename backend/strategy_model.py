@@ -4,6 +4,12 @@ import torch
 import torch.nn as nn
 
 
+torch.set_num_threads(max(1, int(os.getenv("TORCH_NUM_THREADS", "1"))))
+try:
+    torch.set_num_interop_threads(1)
+except RuntimeError:
+    pass
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 MODEL_NAME = "BiLSTM-Attention-40F"

@@ -14,12 +14,23 @@ import { useOnboardingTour } from './composables/useOnboardingTour'
 import { useRaceStore } from './stores/raceStore'
 
 const store = useRaceStore()
-const { selectedRace, selection, prediction, dataSource, health, loading, error } = storeToRefs(store)
+const {
+  selectedRace,
+  selection,
+  prediction,
+  dataSource,
+  health,
+  loading,
+  error,
+  panels,
+} = storeToRefs(store)
 const { startTour, startTourIfNeeded } = useOnboardingTour()
 
 onMounted(async () => {
   await store.initialize()
-  await startTourIfNeeded()
+  if (!error.value && !panels.value.raceState.error && !panels.value.prediction.error) {
+    await startTourIfNeeded()
+  }
 })
 </script>
 

@@ -157,8 +157,8 @@ export const useRaceStore = defineStore('race', () => {
     comparison: 0,
     simulation: 0,
   }
-  let deferredTimers: number[] = []
   let deferredContextKey = ''
+  let deferredRun = 0
 
   const loading = computed(() =>
     initializing.value || panels.raceState.loading || panels.prediction.loading,
@@ -298,18 +298,16 @@ export const useRaceStore = defineStore('race', () => {
   }
 
   function clearDeferredTimers() {
-    deferredTimers.forEach((timer) => window.clearTimeout(timer))
-    deferredTimers = []
+    deferredRun += 1
   }
 
-  function defer(callback: () => void, delay: number) {
-    deferredTimers.push(window.setTimeout(callback, delay))
+  function waitForDeferredStart(delay: number): Promise<void> {
+    return new Promise((resolve) => window.setTimeout(resolve, delay))
   }
 
-  function deferPanel(key: PanelKey, callback: () => void, delay: number) {
+  function prepareDeferredPanel(key: PanelKey) {
     panels[key].loading = true
     panels[key].error = ''
-    defer(callback, delay)
   }
 
   function loadDeferredForActivePage(force = false) {
@@ -325,19 +323,35 @@ export const useRaceStore = defineStore('race', () => {
     ].join(':')
     if (!force && deferredContextKey === contextKey) return
     deferredContextKey = contextKey
+    const run = deferredRun
 
-    if (activePage.value === 'dashboard') {
-      deferPanel('features', () => void loadFeatures(), 80)
-      deferPanel('pace', () => void loadPaceTrend(), 180)
-      deferPanel('comparison', () => void loadComparison(), 280)
-      deferPanel('timeline', () => void loadTimeline(), 380)
-    } else if (activePage.value === 'replay') {
-      deferPanel('pace', () => void loadPaceTrend(), 80)
-      deferPanel('comparison', () => void loadComparison(), 180)
-      deferPanel('timeline', () => void loadTimeline(), 280)
-    } else if (activePage.value === 'model-analysis') {
-      deferPanel('features', () => void loadFeatures(), 80)
-    }
+    const tasks: Array<[PanelKey, () => Promise<void>]> = activePage.value === 'dashboard'
+      ? [
+          ['features', loadFeatures],
+          ['pace', loadPaceTrend],
+          ['comparison', loadComparison],
+          ['timeline', loadTimeline],
+        ]
+      : activePage.value === 'replay'
+        ? [
+            ['pace', loadPaceTrend],
+            ['comparison', loadComparison],
+            ['timeline', loadTimeline],
+          ]
+        : activePage.value === 'model-analysis'
+          ? [['features', loadFeatures]]
+          : []
+
+    tasks.forEach(([key]) => prepareDeferredPanel(key))
+
+    void (async () => {
+      await waitForDeferredStart(150)
+      for (const [, task] of tasks) {
+        if (run !== deferredRun || deferredContextKey !== contextKey) return
+        await task()
+        await waitForDeferredStart(120)
+      }
+    })()
   }
 
   function activatePage(page: PageName) {
@@ -456,7 +470,8 @@ export const useRaceStore = defineStore('race', () => {
       initializing.value = false
     }
 
-    void refreshCore().then(() => loadDeferredForActivePage())
+    await refreshCore()
+    loadDeferredForActivePage()
   }
 
   return {
