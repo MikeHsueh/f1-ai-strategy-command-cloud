@@ -57,6 +57,8 @@ gunicorn --chdir backend --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 
 ## Production Notes
 
 - Do not set `VITE_USE_MOCK=true` in production.
+- Keep `VITE_ALLOW_MOCK_FALLBACK=false` so backend failures are shown
+  instead of silently replacing trained-model output with browser mock data.
 - The default API base URL is `/`, so frontend and backend share one origin.
 - `best_f1_strategy_model_attention.pth` is the active trained model.
 - `raw_f1_data.parquet` and `engineered_f1_data.parquet` are required.

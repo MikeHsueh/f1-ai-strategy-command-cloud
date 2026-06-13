@@ -3,4 +3,4 @@ services:
     name: f1-ai-strategy-command
     runtime: docker
     healthCheckPath: /api/health
-    autoDeploy: false
+    autoDeploy: true

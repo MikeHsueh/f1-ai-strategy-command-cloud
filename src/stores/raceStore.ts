@@ -163,8 +163,8 @@ export const useRaceStore = defineStore('race', () => {
     ]
   })
 
-  function useSource(source: DataSource) {
-    if (source === 'mock') dataSource.value = 'mock'
+  function useSources(...sources: DataSource[]) {
+    dataSource.value = forceMock || sources.includes('mock') ? 'mock' : 'api'
   }
 
   async function refreshDashboard() {
@@ -192,14 +192,14 @@ export const useRaceStore = defineStore('race', () => {
       paceTrend.value = trendResult.data
       features.value = featureResult.data
       comparison.value = comparisonResult.data
-      ;[
+      useSources(
         stateResult.source,
         predictionResult.source,
         timelineResult.source,
         trendResult.source,
         featureResult.source,
         comparisonResult.source,
-      ].forEach(useSource)
+      )
       lastUpdated.value = new Date()
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : 'Dashboard refresh failed.'
@@ -211,14 +211,14 @@ export const useRaceStore = defineStore('race', () => {
   async function loadLaps() {
     const result = await getLaps(selection)
     laps.value = result.data
-    useSource(result.source)
+    useSources(result.source)
     if (!laps.value.includes(selection.lap)) selection.lap = laps.value[0] ?? 1
   }
 
   async function loadDrivers() {
     const result = await getDrivers(selection.year, selection.roundNumber)
     drivers.value = result.data
-    useSource(result.source)
+    useSources(result.source)
     if (!drivers.value.some((driver) => driver.code === selection.driver)) {
       selection.driver = drivers.value[0]?.code ?? 'NOR'
     }
@@ -228,7 +228,7 @@ export const useRaceStore = defineStore('race', () => {
     selection.year = year
     const result = await getRaces(year)
     races.value = result.data
-    useSource(result.source)
+    useSources(result.source)
     selection.roundNumber = races.value[0]?.round ?? 1
     await setRace(selection.roundNumber)
   }
@@ -255,7 +255,7 @@ export const useRaceStore = defineStore('race', () => {
   async function runSimulation(input: StrategySimulationInput) {
     const result = await simulateStrategy(selection, input)
     simulationResult.value = result.data
-    useSource(result.source)
+    useSources(result.source)
     return result.data
   }
 
@@ -268,11 +268,15 @@ export const useRaceStore = defineStore('race', () => {
     initializing.value = true
     error.value = ''
     try {
-      const [healthResult, seasonResult] = await Promise.all([getHealth(), getSeasons()])
+      // Wake cloud instances with the lightweight health request before
+      // loading datasets and running model-backed dashboard queries.
+      const healthResult = await getHealth()
       health.value = healthResult.data
+      useSources(healthResult.source)
+
+      const seasonResult = await getSeasons()
       seasons.value = seasonResult.data
-      useSource(healthResult.source)
-      useSource(seasonResult.source)
+      useSources(healthResult.source, seasonResult.source)
 
       if (!seasons.value.some((season) => season.year === selection.year)) {
         selection.year = seasons.value[0]?.year ?? 2024
@@ -280,7 +284,7 @@ export const useRaceStore = defineStore('race', () => {
 
       const raceResult = await getRaces(selection.year)
       races.value = raceResult.data
-      useSource(raceResult.source)
+      useSources(raceResult.source)
       if (!races.value.some((race) => race.round === selection.roundNumber)) {
         selection.roundNumber = races.value[0]?.round ?? 1
       }
