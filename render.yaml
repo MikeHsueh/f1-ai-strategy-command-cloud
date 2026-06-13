@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: f1-ai-strategy-command
+    runtime: docker
+    healthCheckPath: /api/health
+    autoDeploy: false

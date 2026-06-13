@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+.vscode
+backend/__pycache__
+backend/**/*.pyc
+backend/fastf1_cache
+*.zip
+edge-*
