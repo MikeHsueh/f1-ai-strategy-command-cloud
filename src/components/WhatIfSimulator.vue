@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { FlaskConical, LoaderCircle, RotateCcw } from '@lucide/vue'
 import type {
   RaceState,
@@ -14,8 +14,12 @@ const props = withDefaults(defineProps<{
   result: StrategySimulationResult | null
   allowInitialOverride?: boolean
   requestError?: string
+  loading?: boolean
+  disabled?: boolean
 }>(), {
   allowInitialOverride: false,
+  loading: false,
+  disabled: false,
 })
 
 const emit = defineEmits<{
@@ -54,8 +58,6 @@ const form = reactive<StrategySimulationInput>({
   position: props.raceState.position,
 })
 
-const running = ref(false)
-
 function syncInitialHealth() {
   form.initialTireHealth = Number(calculateTireHealth(
     form.initialCompound,
@@ -87,10 +89,22 @@ watch(
   () => [
     props.raceState.driver,
     props.raceState.lap,
+    props.raceState.total_laps,
+    props.raceState.position,
+    props.raceState.safety_car,
     props.raceState.tire.compound,
     props.raceState.tire.life,
+    props.raceState.weather.model_rain_risk,
   ],
   resetToLiveState,
+)
+
+watch(
+  form,
+  () => {
+    if (props.result) emit('reset')
+  },
+  { deep: true },
 )
 
 const simulatedPreview = computed<TireState>(() => {
@@ -109,12 +123,8 @@ const recommendedNextTire = computed(() =>
   props.result?.recommended_tire ?? form.nextCompound,
 )
 
-async function run() {
-  running.value = true
+function run() {
   emit('simulate', { ...form })
-  window.setTimeout(() => {
-    running.value = false
-  }, 450)
 }
 </script>
 
@@ -201,12 +211,12 @@ async function run() {
     </div>
 
     <div class="simulator-actions">
-      <button class="command-button" type="button" :disabled="running" @click="run">
-        <LoaderCircle v-if="running" class="spin" :size="16" />
+      <button class="command-button" type="button" :disabled="loading || disabled" @click="run">
+        <LoaderCircle v-if="loading" class="spin" :size="16" />
         <FlaskConical v-else :size="16" />
-        Run Simulation
+        {{ loading ? 'Running Simulation' : 'Run Simulation' }}
       </button>
-      <button class="secondary-command-button" type="button" :disabled="running" @click="resetToLiveState">
+      <button class="secondary-command-button" type="button" :disabled="loading || disabled" @click="resetToLiveState">
         <RotateCcw :size="15" />
         Reset to Live State
       </button>

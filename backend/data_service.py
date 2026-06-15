@@ -418,6 +418,9 @@ def enrich_payload_from_dataset(payload):
     lap_ratio = context["lap"] / max(context["total_laps"], 1)
     historical_rain = rain_risk_from_raw(row.get("Rainfall_Raw"))
     live_weather = str(payload.get("weather_mode", "manual")).lower() == "live"
+    manual_control_mode = bool(payload.get("manual_control_mode", False)) or str(
+        payload.get("control_mode", "dataset")
+    ).lower() == "scenario"
 
     current_air = safe_num(payload.get("air_temp"), safe_num(row.get("AirTemp_Raw"), 23.0))
     current_track = safe_num(payload.get("track_temp"), safe_num(row.get("TrackTemp_Raw"), current_air + 8.0))
@@ -425,16 +428,21 @@ def enrich_payload_from_dataset(payload):
     current_rain = safe_num(payload.get("rain_risk"), historical_rain)
     current_wind = safe_num(payload.get("wind_speed"), 0.0)
     current_wind_dir = safe_num(payload.get("wind_direction"), 0.0)
-    model_rain = max(float(np.clip(current_rain, 0.0, 100.0)), historical_rain)
-
-    display_air = current_air if live_weather else safe_num(row.get("AirTemp_Raw"), current_air)
-    display_track = current_track if live_weather else safe_num(row.get("TrackTemp_Raw"), current_track)
-    display_humidity = current_humidity if live_weather else safe_num(row.get("Humidity_Raw"), current_humidity)
-    display_rain = current_rain if live_weather else historical_rain
+    if manual_control_mode:
+        model_rain = float(np.clip(current_rain, 0.0, 100.0))
+        display_air = current_air
+        display_track = current_track
+        display_humidity = current_humidity
+        display_rain = model_rain
+    else:
+        model_rain = max(float(np.clip(current_rain, 0.0, 100.0)), historical_rain)
+        display_air = current_air if live_weather else safe_num(row.get("AirTemp_Raw"), current_air)
+        display_track = current_track if live_weather else safe_num(row.get("TrackTemp_Raw"), current_track)
+        display_humidity = current_humidity if live_weather else safe_num(row.get("Humidity_Raw"), current_humidity)
+        display_rain = current_rain if live_weather else historical_rain
 
     lap_time = lap_time_seconds(row)
     manual_position_override = bool(payload.get("manual_position_override", False))
-    manual_control_mode = bool(payload.get("manual_control_mode", False)) or str(payload.get("control_mode", "dataset")).lower() == "scenario"
     initial_tire_override = bool(payload.get("initial_tire_override", False))
     manual_position = safe_int(payload.get("position"), safe_int(row.get("Position"), 1))
     manual_compound = normalize_compound(payload.get("compound"))
@@ -502,7 +510,11 @@ def enrich_payload_from_dataset(payload):
         "model": {
             "rain_risk": round(model_rain, 1),
             "condition": "wet" if model_rain >= 45 else "dry",
-            "source": "max(current_weather, dataset_race_weather)",
+            "source": (
+                "simulator_scenario_override"
+                if manual_control_mode
+                else "max(current_weather, dataset_race_weather)"
+            ),
         },
     }
     return payload

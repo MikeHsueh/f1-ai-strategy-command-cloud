@@ -166,9 +166,16 @@ export interface StrategySimulationResult {
   projected_position: number
   expected_gain: number
   recommended_tire: string
+  selected_next_compound: TireCompound
+  optimal_pit_lap: number
+  undercut_probability: number
+  risk: RiskLevel
+  action: StrategyAction
+  attention: number[]
   summary: string
   live_current_tire: TireState
   simulated_initial_tire: TireState
+  simulated_weather: WeatherState
   target_pit_lap: number
   override_applied: boolean
 }

@@ -6,6 +6,7 @@ import PanelStatus from './PanelStatus.vue'
 defineProps<{
   prediction: Prediction
   options: StrategyOption[]
+  currentCompound?: string
   loading?: boolean
   error?: string
 }>()
@@ -30,7 +31,7 @@ defineEmits<{ retry: [] }>()
       </div>
       <div class="strategy-path">
         <span>Recommended sequence</span>
-        <strong>Current <ArrowRight :size="16" /> {{ prediction.recommended_tire }}</strong>
+        <strong>{{ currentCompound || 'Current' }} <ArrowRight :size="16" /> {{ prediction.recommended_tire }}</strong>
         <small>Expected net gain {{ prediction.expected_gain.toFixed(2) }}s</small>
       </div>
       <div class="undercut-score">

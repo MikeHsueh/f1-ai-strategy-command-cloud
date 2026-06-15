@@ -224,7 +224,8 @@ export function mockDashboard(selection: Selection): DashboardSnapshot {
 
 export function mockSimulation(selection: Selection, input: StrategySimulationInput): StrategySimulationResult {
   const base = probabilityAt(selection)
-  const live = mockRaceState(selection).tire
+  const liveState = mockRaceState(selection)
+  const live = liveState.tire
   const simulatedCompound = input.enableInitialTireOverride ? input.initialCompound : live.compound
   const simulatedLife = input.enableInitialTireOverride ? input.initialTyreLife : live.life
   const expectedLife: Record<TireCompound, number> = {
@@ -251,14 +252,32 @@ export function mockSimulation(selection: Selection, input: StrategySimulationIn
     ? Math.max(-0.15, Math.min(0.35, (100 - simulatedHealth) / 180))
     : 0
   const pit_probability = Math.max(0.01, Math.min(0.99, base + scBoost + weatherBoost + tirePressure))
+  const decision = classifyRisk(pit_probability)
+  const recommendedTire = input.rainRisk > 70
+    ? 'WET'
+    : input.rainRisk > 35
+      ? 'INTERMEDIATE'
+      : input.nextCompound
   return {
     pit_probability,
     projected_position: Math.max(1, (input.position ?? driverIndex(selection.driver) + 1) - (pit_probability > 0.65 ? 1 : 0)),
     expected_gain: Number((pit_probability * 5.4).toFixed(2)),
-    recommended_tire: input.rainRisk > 70 ? 'WET' : input.rainRisk > 35 ? 'INTERMEDIATE' : input.nextCompound,
+    recommended_tire: recommendedTire,
+    selected_next_compound: input.nextCompound,
+    optimal_pit_lap: input.targetPitLap,
+    undercut_probability: Math.min(0.95, 0.35 + pit_probability * 0.45),
+    risk: decision.risk,
+    action: decision.action,
+    attention: [0.06, 0.11, 0.17, 0.25, 0.41],
     summary: input.safetyCar ? 'Pit window improves under Safety Car delta.' : 'Strategy recalculated from the selected race state.',
     live_current_tire: { ...live },
     simulated_initial_tire: simulatedTire,
+    simulated_weather: {
+      ...liveState.weather,
+      rain_risk: input.rainRisk,
+      model_rain_risk: input.rainRisk,
+      condition: input.rainRisk >= 45 ? 'wet' : 'dry',
+    },
     target_pit_lap: input.targetPitLap,
     override_applied: input.enableInitialTireOverride,
   }

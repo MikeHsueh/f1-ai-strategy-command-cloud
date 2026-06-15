@@ -505,7 +505,7 @@ def simulate_strategy_endpoint():
         "lap": body.get("lap"),
         "control_mode": "dataset",
     })
-    live_result = simulate_strategy(live_payload)
+    live_result = _cached_strategy(live_payload)
     live_tire = live_result.get("tire", {})
     live_state = live_result.get("race_state", {})
     live_weather = live_result.get("weather", {})
@@ -520,6 +520,11 @@ def simulate_strategy_endpoint():
         "gap_behind": live_state.get("gap_behind", 0.0),
         "safety_car": bool(body.get("safetyCar", body.get("safety_car", False))),
         "rain_risk": body.get("rainRisk", body.get("rain_risk", live_weather.get("model_rain_risk", 0))),
+        "track_temp": live_weather.get("track_temp", 35.0),
+        "air_temp": live_weather.get("air_temp", 23.0),
+        "humidity": live_weather.get("humidity", 55.0),
+        "wind_speed": live_weather.get("wind_speed", 0.0),
+        "wind_direction": live_weather.get("wind_direction", 0.0),
         "next_compound": body.get("nextCompound", body.get("next_compound", "HARD")),
         "target_pit_lap": body.get("targetPitLap", body.get("target_lap", body.get("lap", 1))),
     }
@@ -528,14 +533,12 @@ def simulate_strategy_endpoint():
         scenario_input["tire_age"] = body.get("initialTyreLife", body.get("initial_tyre_life", live_tire.get("life", 0)))
 
     payload = clean_payload(scenario_input)
-    result = simulate_strategy(payload)
+    result = _cached_strategy(payload)
     prediction = prediction_payload(result)
     current_position = int(result.get("race_state", {}).get("position", payload.get("position", 1)))
     simulated_tire = result.get("tire", {})
-    rain_risk = max(
-        float(result.get("weather", {}).get("model_rain_risk", payload.get("rain_risk", 0))),
-        float(live_result.get("weather", {}).get("model_rain_risk", 0)),
-    )
+    simulated_weather = result.get("weather", {})
+    rain_risk = float(simulated_weather.get("model_rain_risk", payload.get("rain_risk", 0)))
     recommended_tire = (
         "WET"
         if rain_risk > 75
@@ -552,8 +555,18 @@ def simulate_strategy_endpoint():
         "projected_position": projected_position,
         "expected_gain": prediction["expected_gain"],
         "recommended_tire": recommended_tire,
+        "selected_next_compound": str(payload.get("next_compound", "HARD")).upper(),
+        "optimal_pit_lap": int(payload.get("target_pit_lap", payload.get("lap", 1))),
+        "undercut_probability": prediction["undercut_probability"],
+        "risk": prediction["risk"],
+        "action": prediction["action"],
+        "attention": prediction["attention"],
         "live_current_tire": live_tire,
         "simulated_initial_tire": simulated_tire,
+        "simulated_weather": {
+            **simulated_weather,
+            "condition": "wet" if rain_risk >= 45 else "dry",
+        },
         "target_pit_lap": int(payload.get("target_pit_lap", payload.get("lap", 1))),
         "override_applied": override_enabled,
         "summary": (

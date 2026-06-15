@@ -131,6 +131,7 @@ export const useRaceStore = defineStore('race', () => {
   const features = ref<FeatureItem[]>([])
   const comparison = ref<DriverComparisonRow[]>([])
   const simulationResult = ref<StrategySimulationResult | null>(null)
+  const lastSimulationInput = ref<StrategySimulationInput | null>(null)
   const initializing = ref(false)
   const lastUpdated = ref<Date | null>(null)
   const dataSource = ref<DataSource>(forceMock ? 'mock' : 'api')
@@ -422,6 +423,8 @@ export const useRaceStore = defineStore('race', () => {
 
   async function runSimulation(input: StrategySimulationInput) {
     let result: StrategySimulationResult | null = null
+    lastSimulationInput.value = { ...input }
+    simulationResult.value = null
     await runPanelRequest(
       'simulation',
       () => simulateStrategy(selectionSnapshot(), input),
@@ -431,6 +434,11 @@ export const useRaceStore = defineStore('race', () => {
       },
     )
     return result
+  }
+
+  function retrySimulation() {
+    if (!lastSimulationInput.value) return Promise.resolve(null)
+    return runSimulation(lastSimulationInput.value)
   }
 
   function resetSimulation() {
@@ -512,6 +520,7 @@ export const useRaceStore = defineStore('race', () => {
     setDriver,
     setLap,
     runSimulation,
+    retrySimulation,
     resetSimulation,
   }
 })
